@@ -4,7 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Big Base64 Converter</title>
+    
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Babel Standalone (Compiles JSX/TS in browser) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
       body {
@@ -12,37 +18,734 @@
         background-color: #09090b; /* zinc-950 */
         color: #e4e4e7; /* zinc-200 */
       }
-      /* Custom Scrollbar for Textarea */
-      textarea::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-      }
-      textarea::-webkit-scrollbar-track {
-        background: #18181b; /* zinc-900 */
-        border-radius: 4px;
-      }
-      textarea::-webkit-scrollbar-thumb {
-        background: #3f3f46; /* zinc-700 */
-        border-radius: 4px;
-      }
-      textarea::-webkit-scrollbar-thumb:hover {
-        background: #52525b; /* zinc-600 */
-      }
+      /* Custom Scrollbar */
+      textarea::-webkit-scrollbar { width: 8px; height: 8px; }
+      textarea::-webkit-scrollbar-track { background: #18181b; border-radius: 4px; }
+      textarea::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+      textarea::-webkit-scrollbar-thumb:hover { background: #52525b; }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "lucide-react": "https://esm.sh/lucide-react@^0.561.0"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
+  <link rel="stylesheet" href="/index.css">
 </head>
   <body>
     <div id="root"></div>
+
+    <!-- MAIN APPLICATION SCRIPT -->
+    <script type="text/babel" data-type="module">
+      // 1. IMPORTS
+      import React, { useState, useCallback, useRef } from 'https://esm.sh/react@18.2.0';
+      import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+      import { 
+        Trash2, Download, Zap, Image as ImageIcon, AlertCircle, X, 
+        FileType, Monitor, Smartphone, HardDrive, Video, Clock, 
+        Repeat, Upload, Copy, Check, Music, FileText, FileUp, 
+        ShieldAlert, ClipboardPaste 
+      } from 'https://esm.sh/lucide-react@0.294.0';
+
+      // 2. UTILS
+      const cleanBase64 = (str) => {
+        return str.replace(/\s/g, '');
+      };
+
+      const processBase64Input = (raw) => {
+        const cleaned = cleanBase64(raw);
+        const dataUriPattern = /^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,/;
+        const match = cleaned.match(dataUriPattern);
+        
+        if (match) {
+          const mime = match[1];
+          let ext = mime.split('/')[1];
+          let type = 'image';
+
+          if (mime.startsWith('video/')) type = 'video';
+          if (mime.startsWith('audio/')) type = 'audio';
+
+          if (ext === 'jpeg') ext = 'jpg';
+          if (ext === 'svg+xml') ext = 'svg';
+          if (ext === 'x-icon') ext = 'ico';
+          if (ext === 'mpeg') ext = 'mp3';
+          if (ext === 'x-m4a') ext = 'm4a';
+          
+          return { src: cleaned, ext, mime, type };
+        }
+
+        let header = '';
+        try {
+          header = atob(cleaned.slice(0, 32));
+        } catch (e) {}
+
+        const startsWithHex = (hexVals) => {
+          for (let i = 0; i < hexVals.length; i++) {
+            if (header.charCodeAt(i) !== hexVals[i]) return false;
+          }
+          return true;
+        };
+
+        // Audio Detection
+        if (header.startsWith('ID3') || startsWithHex([0xFF, 0xFB])) 
+          return { src: `data:audio/mpeg;base64,${cleaned}`, ext: 'mp3', mime: 'audio/mpeg', type: 'audio' };
+        if (header.startsWith('fLaC')) 
+          return { src: `data:audio/flac;base64,${cleaned}`, ext: 'flac', mime: 'audio/flac', type: 'audio' };
+        if (header.startsWith('OggS')) 
+          return { src: `data:audio/ogg;base64,${cleaned}`, ext: 'ogg', mime: 'audio/ogg', type: 'audio' };
+        if (header.slice(4, 11) === 'ftypM4A') 
+          return { src: `data:audio/mp4;base64,${cleaned}`, ext: 'm4a', mime: 'audio/mp4', type: 'audio' };
+        if (startsWithHex([0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11])) 
+          return { src: `data:audio/x-ms-wma;base64,${cleaned}`, ext: 'wma', mime: 'audio/x-ms-wma', type: 'audio' };
+
+        // RIFF Container
+        if (header.startsWith('RIFF')) {
+          const format = header.slice(8, 12);
+          if (format === 'WAVE') return { src: `data:audio/wav;base64,${cleaned}`, ext: 'wav', mime: 'audio/wav', type: 'audio' };
+          if (format === 'AVI ') return { src: `data:video/x-msvideo;base64,${cleaned}`, ext: 'avi', mime: 'video/x-msvideo', type: 'video' };
+          if (format === 'WEBP') return { src: `data:image/webp;base64,${cleaned}`, ext: 'webp', mime: 'image/webp', type: 'image' };
+        }
+
+        // Video Detection
+        if (header.includes('ftyp') && !header.includes('M4A')) 
+           return { src: `data:video/mp4;base64,${cleaned}`, ext: 'mp4', mime: 'video/mp4', type: 'video' };
+        if (startsWithHex([0x1A, 0x45, 0xDF, 0xA3])) 
+           return { src: `data:video/webm;base64,${cleaned}`, ext: 'webm', mime: 'video/webm', type: 'video' };
+
+        // Image Detection
+        if (header.slice(1, 4) === 'PNG') return { src: `data:image/png;base64,${cleaned}`, ext: 'png', mime: 'image/png', type: 'image' };
+        if (startsWithHex([0xFF, 0xD8, 0xFF])) return { src: `data:image/jpeg;base64,${cleaned}`, ext: 'jpg', mime: 'image/jpeg', type: 'image' };
+        if (header.startsWith('GIF8')) return { src: `data:image/gif;base64,${cleaned}`, ext: 'gif', mime: 'image/gif', type: 'image' };
+        if (header.startsWith('BM')) return { src: `data:image/bmp;base64,${cleaned}`, ext: 'bmp', mime: 'image/bmp', type: 'image' };
+        if (startsWithHex([0x00, 0x00, 0x01, 0x00])) return { src: `data:image/x-icon;base64,${cleaned}`, ext: 'ico', mime: 'image/x-icon', type: 'image' };
+        if (header.includes('<svg') || (header.includes('<?xml') && cleaned.includes('svg'))) return { src: `data:image/svg+xml;base64,${cleaned}`, ext: 'svg', mime: 'image/svg+xml', type: 'image' };
+
+        // Default
+        return { src: `data:image/png;base64,${cleaned}`, ext: 'png', mime: 'image/png', type: 'image' };
+      };
+
+      const downloadImage = (src, filename) => {
+        const link = document.createElement('a');
+        link.href = src;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      };
+
+      const downloadText = (text, filename) => {
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      };
+
+      const formatBytes = (bytes, decimals = 2) => {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+      };
+
+      const getBase64Size = (base64String) => {
+        const base64 = base64String.split(',')[1] || base64String;
+        const padding = (base64.match(/=/g) || []).length;
+        return (base64.length * 3) / 4 - padding;
+      };
+
+      const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
+
+      const getAspectRatio = (width, height) => {
+        if (height === 0) return 'NaN';
+        const divisor = gcd(Math.round(width), Math.round(height));
+        return `${width / divisor}:${height / divisor}`;
+      };
+
+      const formatDuration = (seconds) => {
+        if (!seconds || isNaN(seconds)) return '00:00';
+        const m = Math.floor(seconds / 60);
+        const s = Math.floor(seconds % 60);
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+      };
+
+      // 3. APP COMPONENT
+      const App = () => {
+        const [mode, setMode] = useState('decode');
+        
+        const [input, setInput] = useState('');
+        const [error, setError] = useState(null);
+        const [isDragging, setIsDragging] = useState(false);
+        const [copied, setCopied] = useState(false);
+
+        const [mediaSrc, setMediaSrc] = useState(null);
+        const [fileInfo, setFileInfo] = useState(null);
+        const [fileSize, setFileSize] = useState(null);
+        const [dimensions, setDimensions] = useState(null);
+        const [duration, setDuration] = useState(null);
+        
+        const mediaRef = useRef(null);
+        const fileInputRef = useRef(null);
+        const txtInputRef = useRef(null);
+
+        const resetState = useCallback(() => {
+          setInput('');
+          setMediaSrc(null);
+          setFileInfo(null);
+          setFileSize(null);
+          setDimensions(null);
+          setDuration(null);
+          setError(null);
+          setCopied(false);
+        }, []);
+
+        const handleEraseTraces = useCallback(async () => {
+          if (window.confirm("ERASE ALL DATA?\n\nThis will clear your inputs, clipboard, browser caches for this site, and reload a fresh session. This action cannot be undone.")) {
+              resetState();
+              if (fileInputRef.current) fileInputRef.current.value = '';
+              if (txtInputRef.current) txtInputRef.current.value = '';
+              localStorage.clear();
+              sessionStorage.clear();
+              try { await navigator.clipboard.writeText(''); } catch (e) {}
+              if ('caches' in window) {
+                  try {
+                      const names = await caches.keys();
+                      await Promise.all(names.map(name => caches.delete(name)));
+                  } catch (e) {}
+              }
+              window.location.reload();
+          }
+        }, [resetState]);
+
+        const toggleMode = useCallback(() => {
+          resetState();
+          setMode(prev => prev === 'decode' ? 'encode' : 'decode');
+        }, [resetState]);
+
+        const handleConvert = useCallback(() => {
+          setError(null);
+          if (!input.trim()) {
+            setError("Please enter a Base64 string first.");
+            return;
+          }
+          try {
+            const { src, ext, mime, type } = processBase64Input(input);
+            const sizeBytes = getBase64Size(src);
+            setMediaSrc(src);
+            setFileInfo({ ext, mime, type });
+            setFileSize(formatBytes(sizeBytes));
+            setDimensions(null);
+            setDuration(null);
+          } catch (err) {
+            setError("Failed to process Base64 string.");
+          }
+        }, [input]);
+
+        const handlePaste = async () => {
+          try {
+              const text = await navigator.clipboard.readText();
+              if (text) {
+                  setInput(text);
+                  setError(null);
+              }
+          } catch (err) {
+              setError("Failed to read clipboard. Please paste manually.");
+          }
+        };
+
+        const handleTxtUpload = (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+              if (ev.target?.result) {
+                  setInput(ev.target.result);
+                  setError(null);
+              }
+          };
+          reader.onerror = () => setError("Failed to read text file.");
+          reader.readAsText(file);
+          e.target.value = '';
+        };
+
+        const handleImageLoad = (e) => {
+          const img = e.currentTarget;
+          const width = img.naturalWidth;
+          const height = img.naturalHeight;
+          const ratio = getAspectRatio(width, height);
+          setDimensions({ width, height, ratio });
+        };
+
+        const handleVideoLoad = (e) => {
+          const video = e.currentTarget;
+          const width = video.videoWidth;
+          const height = video.videoHeight;
+          const ratio = getAspectRatio(width, height);
+          setDimensions({ width, height, ratio });
+          setDuration(formatDuration(video.duration));
+        };
+
+        const handleAudioLoad = (e) => {
+          const audio = e.currentTarget;
+          setDuration(formatDuration(audio.duration));
+          setDimensions(null);
+        };
+
+        const handleSave = useCallback(() => {
+          if (mediaSrc && fileInfo) {
+            downloadImage(mediaSrc, `file-${Date.now()}.${fileInfo.ext}`);
+          }
+        }, [mediaSrc, fileInfo]);
+
+        const handleFileUpload = useCallback((file) => {
+          setError(null);
+          setCopied(false);
+
+          if (!file.type.startsWith('image/') && !file.type.startsWith('video/') && !file.type.startsWith('audio/')) {
+              const ext = file.name.split('.').pop()?.toLowerCase();
+              const validExts = ['mp3', 'wav', 'flac', 'aac', 'ogg', 'wma', 'm4a'];
+              if (!ext || !validExts.includes(ext)) {
+                  setError("Please upload a valid image, video, or audio file.");
+                  return;
+              }
+          }
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+              const result = e.target?.result;
+              setInput(result);
+              const sizeBytes = getBase64Size(result);
+              setFileSize(formatBytes(sizeBytes));
+              
+              let type = 'image';
+              if (file.type.startsWith('video/')) type = 'video';
+              if (file.type.startsWith('audio/')) type = 'audio';
+              if (type === 'image' && (file.name.endsWith('.mp3') || file.name.endsWith('.wav'))) {
+                  type = 'audio';
+              }
+
+              setFileInfo({ 
+                  ext: file.name.split('.').pop() || 'dat', 
+                  mime: file.type || 'application/octet-stream', 
+                  type 
+              });
+          };
+          reader.onerror = () => setError("Failed to read file.");
+          reader.readAsDataURL(file);
+        }, []);
+
+        const handleCopy = async () => {
+          if (!input) return;
+          try {
+            await navigator.clipboard.writeText(input);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          } catch (err) {
+            setError("Failed to copy to clipboard.");
+          }
+        };
+
+        const handleSaveText = useCallback(() => {
+          if (!input) return;
+          const name = fileInfo ? `${fileInfo.ext.toUpperCase()}_Base64` : 'Base64_Output';
+          downloadText(input, `${name}-${Date.now()}.txt`);
+        }, [input, fileInfo]);
+
+        const handleDragOver = (e) => {
+          e.preventDefault();
+          setIsDragging(true);
+        };
+
+        const handleDragLeave = () => {
+          setIsDragging(false);
+        };
+
+        const handleDrop = (e) => {
+          e.preventDefault();
+          setIsDragging(false);
+          if (mode === 'decode') {
+              const textData = e.dataTransfer.getData('text');
+              if (textData) setInput(textData);
+          } else {
+              const files = e.dataTransfer.files;
+              if (files && files.length > 0) {
+                  handleFileUpload(files[0]);
+              }
+          }
+        };
+
+        const renderIcon = () => {
+            if (fileInfo?.type === 'video') return <Video className="w-5 h-5"/>;
+            if (fileInfo?.type === 'audio') return <Music className="w-5 h-5"/>;
+            return <ImageIcon className="w-5 h-5" />;
+        };
+
+        return (
+          <div className="min-h-screen flex flex-col items-center justify-center p-4 md:p-8 bg-zinc-950 text-zinc-100 font-sans selection:bg-zinc-700 selection:text-white relative">
+            
+            <div className="absolute top-6 left-6 z-50">
+              <button
+                onClick={handleEraseTraces}
+                className="group flex items-center space-x-2 px-4 py-2 rounded-full bg-red-950/30 border border-red-900/50 hover:border-red-500 hover:bg-red-900/50 transition-all text-sm font-bold text-red-400 hover:text-red-200 shadow-xl"
+                title="Clear all local data and reload"
+              >
+                <ShieldAlert className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                <span>Erase my traces!</span>
+              </button>
+            </div>
+
+            <div className="absolute top-6 right-6 z-50">
+              <button
+                onClick={toggleMode}
+                className="flex items-center space-x-2 px-4 py-2 rounded-full bg-zinc-900 border border-zinc-800 hover:border-zinc-500 hover:bg-zinc-800 transition-all text-sm font-medium text-zinc-400 hover:text-zinc-200 shadow-xl"
+              >
+                <Repeat className="w-4 h-4" />
+                <span>Switch to {mode === 'decode' ? 'Encode' : 'Decode'}</span>
+              </button>
+            </div>
+
+            <div className="w-full max-w-4xl space-y-8 relative">
+              <header className="text-center space-y-2">
+                <div className="inline-flex items-center justify-center p-4 bg-zinc-900 rounded-2xl mb-4 border border-zinc-800 shadow-xl shadow-black/50">
+                  <Zap className="w-8 h-8 text-white fill-white" />
+                </div>
+                <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-white">
+                  Big Base64 Converter
+                </h1>
+                <p className="text-zinc-500 max-w-lg mx-auto text-lg">
+                  {mode === 'decode' 
+                    ? "Convert Base64 strings to images, videos, or audio securely."
+                    : "Convert media files to Base64 strings instantly. No server uploads."
+                  }
+                </p>
+              </header>
+
+              <main className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                <section className="flex flex-col space-y-4 h-full">
+                  <div 
+                    className={`
+                      relative flex-grow flex flex-col bg-zinc-900/50 rounded-xl border-2 transition-all duration-200
+                      ${isDragging ? 'border-zinc-400 bg-zinc-900 shadow-[0_0_20px_rgba(255,255,255,0.1)]' : 'border-zinc-800 hover:border-zinc-700'}
+                      ${mode === 'decode' && mediaSrc ? 'h-48 lg:h-auto' : 'h-96'}
+                    `}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                  >
+                    {mode === 'decode' ? (
+                      <>
+                        <div className="absolute top-4 left-4 flex items-center space-x-2 text-xs font-bold text-zinc-500 tracking-widest uppercase">
+                          <div className="w-1.5 h-1.5 rounded-full bg-zinc-500"></div>
+                          <span>Input Base64</span>
+                        </div>
+                        <textarea
+                          value={input}
+                          onChange={(e) => {
+                            setInput(e.target.value);
+                            if (error) setError(null);
+                          }}
+                          placeholder="Paste your Base64 string here..."
+                          className="w-full h-full bg-transparent p-6 pt-12 text-sm font-mono text-zinc-300 placeholder-zinc-700 focus:outline-none resize-none rounded-xl"
+                          spellCheck={false}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                        />
+                        {input && (
+                          <button 
+                            onClick={() => setInput('')}
+                            className="absolute top-4 right-4 p-1 text-zinc-600 hover:text-zinc-200 transition-colors"
+                            title="Clear text"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                        <div className="absolute bottom-4 right-4 flex items-center space-x-2">
+                           <button
+                              onClick={handlePaste}
+                              className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-700 transition-all"
+                              title="Paste from clipboard"
+                           >
+                              <ClipboardPaste className="w-3.5 h-3.5" />
+                              <span>Paste</span>
+                           </button>
+                           <button
+                              onClick={() => txtInputRef.current?.click()}
+                              className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs font-medium text-zinc-400 hover:text-white hover:bg-zinc-700 transition-all"
+                           >
+                              <FileUp className="w-3.5 h-3.5" />
+                              <span>Load TXT</span>
+                           </button>
+                           <input 
+                              ref={txtInputRef} 
+                              type="file" 
+                              accept=".txt" 
+                              hidden 
+                              onChange={handleTxtUpload} 
+                           />
+                        </div>
+                      </>
+                    ) : (
+                      <div 
+                        className="w-full h-full flex flex-col items-center justify-center cursor-pointer group text-center px-6"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                         <input 
+                            type="file" 
+                            ref={fileInputRef} 
+                            className="hidden" 
+                            accept="image/*,video/*,audio/*,.mp3,.wav,.aac,.flac,.ogg,.wma,.m4a"
+                            onChange={(e) => {
+                              if (e.target.files && e.target.files.length > 0) {
+                                handleFileUpload(e.target.files[0]);
+                              }
+                            }}
+                         />
+                         <div className="w-24 h-24 rounded-full bg-zinc-900 border border-zinc-700 group-hover:border-zinc-500 group-hover:bg-zinc-800 transition-all flex items-center justify-center mb-6 shadow-inner">
+                            <Upload className="w-10 h-10 text-zinc-500 group-hover:text-zinc-200 transition-colors" />
+                         </div>
+                         <p className="text-zinc-300 font-semibold text-lg">Click to Upload</p>
+                         <p className="text-zinc-500 text-sm mt-1">or drag and drop file here</p>
+                         <div className="mt-4 flex flex-wrap justify-center gap-1.5 max-w-[80%]">
+                            {['PNG', 'JPG', 'GIF', 'MP4', 'WEBM', 'MP3', 'WAV', 'FLAC'].map(ext => (
+                                <span key={ext} className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 border border-zinc-700">
+                                    {ext}
+                                </span>
+                            ))}
+                         </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {mode === 'decode' && (
+                    <button
+                      onClick={handleConvert}
+                      disabled={!input || !!mediaSrc}
+                      className={`
+                        w-full py-4 px-6 rounded-xl font-bold text-lg shadow-lg transition-all transform
+                        flex items-center justify-center space-x-2
+                        ${!input || mediaSrc
+                          ? 'bg-zinc-800 cursor-not-allowed text-zinc-600'
+                          : 'bg-zinc-100 text-zinc-950 hover:bg-white hover:scale-[1.01] active:scale-[0.99] shadow-zinc-900/50'
+                        }
+                      `}
+                    >
+                      {renderIcon()}
+                      <span>Convert</span>
+                    </button>
+                  )}
+                  
+                  {error && (
+                    <div className="bg-red-950/30 border border-red-900/50 text-red-200 px-4 py-3 rounded-lg flex items-start space-x-3 text-sm animate-in fade-in slide-in-from-top-2">
+                      <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                      <span>{error}</span>
+                    </div>
+                  )}
+                </section>
+
+                <section className={`
+                  flex flex-col h-full bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden relative transition-all duration-500 shadow-2xl
+                  ${(mode === 'decode' && mediaSrc) || (mode === 'encode' && input) ? 'opacity-100 translate-y-0' : 'opacity-50 translate-y-4 lg:translate-y-0 lg:opacity-100'}
+                `}>
+                   <div className="absolute top-4 left-4 flex items-center space-x-2 text-xs font-bold text-zinc-500 tracking-widest uppercase z-10">
+                      <div className={`w-1.5 h-1.5 rounded-full ${(mediaSrc || (mode === 'encode' && input)) ? 'bg-emerald-500' : 'bg-zinc-600'}`}></div>
+                      <span>{mode === 'decode' ? 'Preview' : 'Base64 Output'}</span>
+                      {fileInfo && (
+                        <span className="ml-2 px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 border border-zinc-700 flex items-center gap-1 font-mono">
+                          <FileType className="w-3 h-3" />
+                          {fileInfo.ext.toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+
+                  {mode === 'decode' && mediaSrc && (
+                    <div className="flex flex-col h-full">
+                      <div className="flex-grow flex items-center justify-center p-8 overflow-auto bg-[url('https://www.transparenttextures.com/patterns/dark-matter.png')] min-h-[300px]">
+                        {fileInfo?.type === 'video' ? (
+                           <video
+                           ref={mediaRef}
+                           src={mediaSrc}
+                           controls
+                           className="max-w-full max-h-[50vh] shadow-2xl rounded-lg ring-1 ring-white/10"
+                           onLoadedMetadata={handleVideoLoad}
+                           onError={() => setError("Media could not be loaded")}
+                         />
+                        ) : fileInfo?.type === 'audio' ? (
+                          <div className="w-full max-w-sm bg-zinc-800 p-6 rounded-2xl border border-zinc-700 shadow-xl flex flex-col items-center space-y-4">
+                              <div className="w-20 h-20 bg-zinc-900 rounded-full flex items-center justify-center border-2 border-zinc-700">
+                                   <Music className="w-8 h-8 text-zinc-400" />
+                              </div>
+                              <audio
+                                  ref={mediaRef}
+                                  src={mediaSrc}
+                                  controls
+                                  className="w-full"
+                                  onLoadedMetadata={handleAudioLoad}
+                                  onError={() => setError("Audio could not be loaded")}
+                              />
+                          </div>
+                        ) : (
+                          <img 
+                            ref={mediaRef}
+                            src={mediaSrc} 
+                            alt="Converted Result" 
+                            className="max-w-full max-h-[50vh] object-contain shadow-2xl rounded-lg ring-1 ring-white/10"
+                            onLoad={handleImageLoad}
+                            onError={() => setError("Media could not be loaded")}
+                          />
+                        )}
+                      </div>
+                      
+                      {(dimensions || fileSize) && (
+                        <div className={`px-6 py-5 bg-zinc-950 border-t border-zinc-800 grid gap-4 ${fileInfo?.type !== 'image' ? 'grid-cols-3' : 'grid-cols-3'}`}>
+                          
+                          <div className="flex flex-col items-center justify-center text-center space-y-1">
+                            <div className="flex items-center space-x-1.5 text-xs font-bold text-zinc-500 uppercase tracking-wide">
+                              <HardDrive className="w-3 h-3" />
+                              <span>Size</span>
+                            </div>
+                            <span className="text-zinc-200 font-mono text-sm">
+                              {fileSize || '...'}
+                            </span>
+                          </div>
+
+                          {fileInfo?.type !== 'audio' && (
+                              <>
+                              <div className="flex flex-col items-center justify-center text-center space-y-1 border-l border-zinc-800">
+                                  <div className="flex items-center space-x-1.5 text-xs font-bold text-zinc-500 uppercase tracking-wide">
+                                      <Monitor className="w-3 h-3" />
+                                      <span>Res</span>
+                                  </div>
+                                  <span className="text-zinc-200 font-mono text-sm">
+                                      {dimensions ? `${dimensions.width}×${dimensions.height}` : '-'}
+                                  </span>
+                              </div>
+                              
+                              <div className="flex flex-col items-center justify-center text-center space-y-1 border-l border-zinc-800">
+                                  <div className="flex items-center space-x-1.5 text-xs font-bold text-zinc-500 uppercase tracking-wide">
+                                      <Smartphone className="w-3 h-3" />
+                                      <span>Ratio</span>
+                                  </div>
+                                  <span className="text-zinc-200 font-mono text-sm">
+                                      {dimensions ? dimensions.ratio : '-'}
+                                  </span>
+                              </div>
+                              </>
+                          )}
+
+                          {(fileInfo?.type === 'video' || fileInfo?.type === 'audio') && (
+                             <div className={`flex flex-col items-center justify-center text-center space-y-1 ${fileInfo?.type === 'video' ? 'border-l border-zinc-800' : 'col-span-2 border-l border-zinc-800'}`}>
+                             <div className="flex items-center space-x-1.5 text-xs font-bold text-zinc-500 uppercase tracking-wide">
+                               <Clock className="w-3 h-3" />
+                               <span>Duration</span>
+                             </div>
+                             <span className="text-zinc-200 font-mono text-sm">
+                               {duration || '...'}
+                             </span>
+                           </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="p-4 bg-zinc-900 border-t border-zinc-800 grid grid-cols-2 gap-4">
+                        <button
+                          onClick={resetState}
+                          className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium transition-colors hover:text-white"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>Discard</span>
+                        </button>
+                        <button
+                          onClick={handleSave}
+                          className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-zinc-100 hover:bg-white text-zinc-900 font-bold shadow-lg transition-all hover:scale-[1.02] active:scale-[0.98]"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>Save {fileInfo ? fileInfo.ext.toUpperCase() : 'File'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {mode === 'encode' && input && (
+                    <div className="flex flex-col h-full">
+                      <textarea
+                        readOnly
+                        value={input}
+                        className="flex-grow w-full bg-zinc-950 p-6 pt-12 text-sm font-mono text-zinc-300 placeholder-zinc-700 focus:outline-none resize-none"
+                        spellCheck={false}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="off"
+                      />
+                       {fileSize && (
+                        <div className="px-6 py-2 bg-zinc-900 border-t border-zinc-800 flex justify-between items-center text-xs">
+                          <span className="text-zinc-500 uppercase font-bold tracking-wider">File Size:</span>
+                          <span className="text-zinc-300 font-mono">{fileSize}</span>
+                        </div>
+                      )}
+                      
+                      <div className="p-4 bg-zinc-900 border-t border-zinc-800 grid grid-cols-3 gap-3">
+                        <button
+                          onClick={resetState}
+                          className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium transition-colors hover:text-white"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>Delete</span>
+                        </button>
+                         <button
+                          onClick={handleSaveText}
+                          className="flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium transition-colors hover:text-white"
+                        >
+                          <FileText className="w-4 h-4" />
+                          <span>Save TXT</span>
+                        </button>
+                        <button
+                          onClick={handleCopy}
+                          className={`
+                            flex items-center justify-center space-x-2 px-4 py-3 rounded-lg font-bold shadow-lg transition-all
+                            ${copied 
+                              ? 'bg-emerald-600 text-white shadow-emerald-900/20' 
+                              : 'bg-zinc-100 hover:bg-white text-zinc-900 shadow-zinc-900/50 hover:scale-[1.02] active:scale-[0.98]'
+                            }
+                          `}
+                        >
+                          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                          <span>{copied ? 'Copied!' : 'Copy'}</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {((mode === 'decode' && !mediaSrc) || (mode === 'encode' && !input)) && (
+                     <div className="flex-grow flex flex-col items-center justify-center p-12 text-zinc-600 space-y-4 min-h-[300px]">
+                     <div className="w-24 h-24 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+                       {mode === 'decode' 
+                          ? <ImageIcon className="w-10 h-10 opacity-30" />
+                          : <Monitor className="w-10 h-10 opacity-30" />
+                       }
+                     </div>
+                     <p className="text-sm font-medium opacity-50">
+                       {mode === 'decode' ? 'Preview will appear here' : 'Base64 code will appear here'}
+                     </p>
+                   </div>
+                  )}
+                </section>
+
+              </main>
+            </div>
+          </div>
+        );
+      };
+
+      // 4. MOUNTING
+      const rootElement = document.getElementById('root');
+      const root = createRoot(rootElement);
+      root.render(
+        <React.StrictMode>
+          <App />
+        </React.StrictMode>
+      );
+    </script>
   <script type="module" src="/index.tsx"></script>
 </body>
 </html>
