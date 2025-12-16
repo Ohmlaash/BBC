@@ -1,0 +1,5 @@
+{
+  "name": "Base64 to Image Converter",
+  "description": "A secure, privacy-focused tool to convert Base64 strings to images instantly. Features a hit-and-run session style where data is discarded immediately after use.",
+  "requestFramePermissions": []
+}
